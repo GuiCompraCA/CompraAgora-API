@@ -44,7 +44,7 @@ paths:
                 $ref: '#/components/schemas/AuthTokenResponse'
    
   #API Token via client_id/client_secret         
-  /TokenGeneration_Price:     
+  /TokenGeneration:     
       get:    
         tags: [Authenticação]
         summary: Geração de Token com client_id/cliente_secret
@@ -60,15 +60,15 @@ paths:
           ```
         parameters: 
           - in: query
-            name: client_id.
+            name: username
             required: true
             schema: {type: string}
-            example: app_secret 
+            example: username 
           - in: query
-            name: client_secret
+            name: password
             required: true
             example: 9f8a1c0e-1b2c-4d5e-9f00-112233445566
-            schema: {type: string}
+            schema: {type: string, format: password}
             description: Obrigatório quando usar authenticação via aplicação (cliente credentials).
 
         responses:
