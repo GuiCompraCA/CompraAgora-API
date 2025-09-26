@@ -4,10 +4,9 @@ info:
   description: Esse material foi desenvolvido para descrever todas as funcionalidades de integração entre o ERP do distribuidor e o E-Commerce do Compra Agora. Nele, você encontrará os requisitos técnicos, os procedimentos detalhados e as melhores práticas recomendadas para garantir um integração bem-sucedida.
   version: 0.1.1
 servers:
-  - url: https://unileverapiservicesqa.test01.apimanagement.eu20.hana.ondemand.com/CABR/
+  - url: https://unileverapiservicesqa.test01.apimanagement.eu20.hana.ondemand.com/
     description: Servidore de (Homologação)
-  - url: https://ams-prd-a2a.prod.unilever.apimanagement.eu20.hana.ondemand.com/CABR/
-    description: Servidor de (Produção) - (Use com cautela; evite Try it out)
+#    description: Servidor de (Produção) - (Use com cautela; evite Try it out)
 
 paths:
 
@@ -823,7 +822,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-  
+
   #SCHEMA DE OBJETOS
   schemas:
     AuthTokenResponse:
