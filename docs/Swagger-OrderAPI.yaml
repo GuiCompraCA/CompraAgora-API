@@ -1,0 +1,324 @@
+openapi: 3.0.4
+info:
+  title: Order API - Produção
+  description: |
+    Esta API permite que distribuidores realizem pedidos diretamente na plataforma Magento, 
+    sem necessidade de interação do usuário no front-end. 
+
+    O processo é totalmente orquestrado pelo API Gateway, que executa chamadas REST para autenticar o distribuidor, 
+    validar os dados do cliente, montar o carrinho, aplicar as condições comerciais e finalizar o pedido.
+
+    Como se trata de um fluxo assíncrono, a conclusão e o status dos pedidos são comunicados ao distribuidor 
+    por meio da API de retorno incluída neste pacote.
+
+    Importante: esta API opera de forma independente da integração outbound responsável pela atualização de pedidos no ERP do distribuidor.
+
+  version: 0.1.1
+
+servers: 
+  - url: https://unileverapiservicesqa.test01.apimanagement.eu20.hana.ondemand.com/
+    description: Servidor de (Operação - Homologação)
+  #- url: https://ams-qas-a2a.it-cpi023-rt.cfapps.eu20-001.hana.ondemand.com/http/CABR/BulkOrderServices/OrderStatus
+  # description: Servidor de (Autenticação - Homologação)
+  #- url: https://ams-prd-a2a.prod.unilever.apimanagement.eu20.hana.ondemand.com:443/CABR/BulkOrderServices/Orders
+  #  description: Servidor de (Operação)
+
+paths:
+  /demand-capture:
+    post:
+      summary: Recebe pedidos ERP para integração com Magento
+      security:
+      - OAuth2 Order Resquest:
+          - read
+          - write
+      tags: [Order Request]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - type
+                - correlation_id
+                - demands
+              properties:
+                type:
+                  type: string
+                  maxLength: 25
+                  description: Valor fixo "ErpDemandCapture"
+                  example: ErpDemandCapture
+                correlation_id:
+                  type: string
+                  maxLength: 255
+                  description: ID único para rastreamento ponta-a-ponta da requisição
+                  example: AGy9b4x-GjqnkPtyVqUE08oHBZ-test
+                demands:
+                  type: array
+                  description: | 
+                    Lista de pedidos a serem processados.  
+                    ⚠️ Observação: existe uma limitação de até 100 requisições por chamada.
+                  items:
+                    type: object
+                    required:
+                      - seller_code
+                      - erp_demand_id
+                      - cnpj_number
+                      - salesman_cpf
+                      - payment_term
+                      - seller_payment_method
+                      - credit_type
+                      - items
+                    properties:
+                      seller_code:
+                        type: string
+                        maxLength: 10
+                        description: Código do seller
+                      erp_demand_id:
+                        type: string
+                        maxLength: 50
+                        description: Identificador único do pedido no ERP
+                        example: 827-demo123
+                      cnpj_number:
+                        type: string
+                        maxLength: 50
+                        description: CNPJ do cliente
+                        example: 17.120.206/0001-58
+                      salesman_cpf:
+                        type: string
+                        maxLength: 25
+                        description: CPF do vendedor
+                        example: 1785694263
+                      seller_payment_method:
+                        type: string
+                        maxLength: 25
+                        description: Método de pagamento, sempre “boleto faturado”
+                        example: boleto faturado
+                      payment_term:
+                        type: string
+                        maxLength: 50
+                        description: Condição de pagamento
+                        example: CRL-21_28_35_42_49
+                      credit_type:
+                        type: string
+                        maxLength: 50
+                        description: Tipo de crédito, sempre “seller-credit”
+                        example: seller-credit
+                      coupon_code:
+                        type: string
+                        description: | 
+                          Código do cupom aplicado.
+
+                          ⚠️ Observação: Quando não houve cupom deixar o campo em branco.
+                        example: ULBR123_456
+                      items:
+                        type: array
+                        description: | 
+                         Lista de SKUs por pedido a ser processado.  
+                          ⚠️ Observação: existe uma limitação de até 350 SKUs por pedido.
+                        items:
+                          type: object
+                          required:
+                            - sku
+                            - quantity
+                          properties:
+                            sku:
+                              type: string
+                              description: Código SKU do produto
+                              example: 7894000010038C6
+                            ean:
+                              type: string
+                              description: Código produto
+                              example: 7894000010039
+                            quantity:
+                              type: integer
+                              description: Quantidade solicitada
+                              example: 10
+      responses:
+        '200':
+          description: Pedido recebido com sucesso
+        '400':
+          description: Requisição inválida
+        
+  /order-response:
+    post:
+      summary: Retorna o status dos pedidos processados pelo Magento
+      security:
+        - OAuth2 Order Status:
+          - read
+          - write
+      tags: [Order Status]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - correlation_id
+                - type
+                - orders
+              properties:
+                correlation_id:
+                  type: string
+                  maxLength: 255
+                  description: |
+                     Tracking ID dos pacotes com pedidos processados pelo magento.
+
+                     ⚠️ Observação: Processo assincrono, correlation_Id diferente do enviado no Order Request.
+                  example: AHx7k9v-LMpnqzXrTwRE91ycVAZ-test
+                type:
+                  type: string
+                  maxLength: 25
+                  description: Valor fixo "ErpDemandCapture"
+                  example: ErpDemandCapture
+                orders:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - seller_code
+                      - erp_demand_id
+                      - cnpj_number
+                      - increment_id
+                      - product_success_count
+                      - product_failure_count
+                      - total_item_count
+                      - order_status
+                      - coupon_applied_status
+                      - items
+                    properties:
+                      seller_code:
+                        type: string
+                        maxLength: 10
+                        description: Código do seller
+                      erp_demand_id:
+                        type: string
+                        maxLength: 50
+                        description: | 
+                          Identificador único do pedido no ERP do Seller.
+
+                          ⚠️ Observação: Informado na Order Request.
+                      cnpj_number:
+                        type: string
+                        maxLength: 25
+                        description: CNPJ do cliente
+                      increment_id:
+                        type: string
+                        maxLength: 50
+                        description: ID do pedido gerado no Magento
+                      product_success_count:
+                        type: integer
+                        description: Quantidade de produtos processados com sucesso
+                      product_failure_count:
+                        type: integer
+                        description: Quantidade de produtos com falha
+                      total_item_count:
+                        type: integer
+                        description: Quantidade total de itens no pedido
+                      order_error_code:
+                        type: string
+                        enum: [EC001, EC002, EC003, EC007, EC008, EC009,  EC010, EC011]
+                        description: | 
+                          Código de erro geral do pedido
+
+                          ⚠️ Observação: A descrição detalhada dos erros estarão disponiveis na seção de Response do documento. Existem destinção de erros de pedidos e erros de produtos.
+                      order_status:
+                        type: string
+                        enum: [success, failed, partial]
+                        description: Status geral do pedido
+                      coupon_applied_status:
+                        type: string
+                        enum: [success, failed]
+                        description: Status da aplicação do cupom
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          required:
+                            - sku
+                            - status
+                            - error_code
+                            - order_error_code
+                          properties:
+                            sku:
+                              type: string
+                              description: SKU do produto
+                            status:
+                              type: string
+                              enum: [success, failed]
+                              description: Status do processamento do item
+                            error_code:
+                              type: string
+                              enum: [EC004, EC005, EC006]
+                              description: |
+                                 Código de erro do item, se houver
+
+                                 ⚠️ Observação: A descrição detalhada dos erros estarão disponiveis na seção de Response do documento; Existem destinção de erros de pedidos e erros de produtos.
+
+
+      responses:
+      
+        'default':
+            description: |
+              ### HTTP Status Codes
+              | Code | Description |
+              |------|-------------|
+              | 200  | Retorno recebido com sucesso |
+              | 400  | Requisição inválida |
+              ...
+
+              ### Internal Business/Data Errors
+              | Code  | Description | Nivel |
+              |-------|-------------| ------| 
+              | EC001 | Falha na autorização do vendedor. Conta incorreta ou temporariamente desativada. | Pedido
+              | EC002 | Falha na autorização do cliente. Não foi possível realizar login. | Pedido
+              | EC003 | Dados do cliente não disponíveis. | Pedido
+              | EC004 | Produto não encontrado: {{sku}} | Produto
+              | EC005 | Falha ao adicionar ao carrinho: quantidade indisponível para {{sku}} | Produto
+              | EC006 | Falha ao adicionar ao carrinho: preço não disponível para {{sku}} | Produto
+              | EC007 | Método de pagamento não disponível ou inválido: {{payment_method_code}} | Pedido
+              | EC008 | Cupom não disponível: {{coupon_code} | Pedido
+              | EC009 | Falha ao finalizar pedido: não foi possível processar o pedido {{seller_order_code}} | Pedido
+              | EC010 | Pedidos com ausencia de SKUs | Pedido
+              | EC011 | Ordem rejeitada: Limite de crédito insuficiente | Pedido
+
+              ...
+
+
+
+components:
+  securitySchemes:
+    OAuth2 Order Resquest:
+      type: oauth2
+      description: Ambiente de Autenticação fornecida pelo Compra-Agora.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://ams-prd-a2a.prod.unilever.apimanagement.eu20.hana.ondemand.com/OAuth/token
+          tokenUrl: https://ams-prd-a2a.prod.unilever.apimanagement.eu20.hana.ondemand.com/OAuth/token
+          scopes:
+            read: Permite leitura de dados
+            write: Permite escrita de dados
+
+    OAuth2 Order Status:
+      type: oauth2
+      description: Ambiente de autenticação fornecida pelo distribuidor.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://auth.distribuidor.com/oauth/authorize
+          tokenUrl: https://auth.distribuidor.com/oauth/token
+          scopes:
+            read: Permite leitura de dados
+            write: Permite escrita de dados
+  schemas:
+    AuthTokenResponse:
+        type: object
+        properties:
+          access_token:
+            type: string
+            maxLength: 100
+            description: Token de autenticação para envio em headers Authorization.
+          token_type:
+            type: string
+            maxLength: 100
+            description: Tipo do token (sempre "bearer").
