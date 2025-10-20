@@ -1,1184 +1,310 @@
 openapi: 3.0.4
 info:
-  title: Integração de Distribuidor
-  description: Esse material foi desenvolvido para descrever todas as funcionalidades de integração entre o ERP do distribuidor e o E-Commerce do Compra Agora. Nele, você encontrará os requisitos técnicos, os procedimentos detalhados e as melhores práticas recomendadas para garantir um integração bem-sucedida.
+  title: Order API - Produção
+  description: |
+    Esta API permite que distribuidores realizem pedidos diretamente na plataforma Magento, 
+    sem necessidade de interação do usuário no front-end. 
+
+    O processo é totalmente orquestrado pelo API Gateway, que executa chamadas REST para autenticar o distribuidor, 
+    validar os dados do cliente, montar o carrinho, aplicar as condições comerciais e finalizar o pedido.
+
+    Como se trata de um fluxo assíncrono, a conclusão e o status dos pedidos são comunicados ao distribuidor 
+    por meio da API de retorno incluída neste pacote.
+
+    Importante: esta API opera de forma independente da integração outbound responsável pela atualização de pedidos no ERP do distribuidor.
+
   version: 0.1.1
-servers:
-  - url: https://unileverapiservicesqa.test01.apimanagement.eu20.hana.ondemand.com/
-    description: Servidore de (Homologação)
-#    description: Servidor de (Produção) - (Use com cautela; evite Try it out)
+
+servers: 
+  #- url: https://unileverapiservicesqa.test01.apimanagement.eu20.hana.ondemand.com/
+  # description: Servidor de (Operação - Homologação)
+  #- url: https://ams-qas-a2a.it-cpi023-rt.cfapps.eu20-001.hana.ondemand.com/http/CABR/BulkOrderServices/OrderStatus
+  # description: Servidor de (Autenticação - Homologação)
+  - url: https://ams-prd-a2a.prod.unilever.apimanagement.eu20.hana.ondemand.com:443/CABR/BulkOrderServices/Orders
+    description: Servidor de (Operação)
 
 paths:
-
-  #API Token via usuario/senha
-  /InitiateTokenGeneration:
-    get: 
-      summary: Geração de token com usuário/senha.
-      operationId: getTokenByUserPassword
-      description: |
-                Este endpoint gera um **access_token** vinculado a um usuário específico.
-                Utilize quando a authenticação precisar identificar diretamente um usuário final.
-                enviando `username` e `password` como parâmetros de consulta.
-
-                O token retornado deve ser usado no header `Authorization` das chamadas subsequentes:
-                ```
-                Authorization: Bearer {access_token}
-                ```
-      tags: [Authenticação]
-      parameters:
-      - in: query
-        name: username
-        schema: {type: string}
-        required: true
-      - in: query
-        name: password
-        schema: {type: string, format: password}
-        required: true
-
-      responses:
-        '200':
-          description: Token gerado.
-          content:
-            application/json:
-              schema: 
-                $ref: '#/components/schemas/AuthTokenResponse'
-   
-  #API Token via client_id/client_secret         
-  /TokenGeneration:     
-      get:    
-        tags: [Authenticação]
-        summary: Geração de Token com client_id/cliente_secret
-        operationId: getTokenByClientCredentials
-        description: |
-          Este endpoint ger um **access_token** vinculado a uma aplicação (integração sistema a sistema).
-          Utilize quando a authenticação for realizada via credenciais de aplicação (`cliente_id` e `cliente_secret`),
-          sem a necessidade de authenticar um usuário humano.
-
-          O Token retornado deve ser usado no header `Authorization` das chamadas subsequentes:
-          ```
-          Authorization: Bearer {access_token}
-          ```
-        parameters: 
-          - in: query
-            name: username
-            required: true
-            schema: {type: string}
-            example: username 
-          - in: query
-            name: password
-            required: true
-            example: 9f8a1c0e-1b2c-4d5e-9f00-112233445566
-            schema: {type: string, format: password}
-            description: Obrigatório quando usar authenticação via aplicação (cliente credentials).
-
-        responses:
-          '200':
-             description: Token gerado.
-             content:
-              application/json:
-                schema: {$ref: '#/components/schemas/AuthTokenResponse'}
-             
-  #API DE ESTOQUE (SOAP)
-  /stockService/setStock:
+  /demand-capture:
     post:
+      summary: Recebe pedidos ERP para integração com Magento
       security:
-        - bearerAuth: []
-      tags: [Estoque] 
-      summary: Recebe informações de estoque (SOAP)
-      description: |
-                 Endpoint **SOAP** para envio de estoque pelo ERP do distribuidor. Permite registrar um ou mais produtos e respectivas quantidades, utilizando **EAN/SKU** como identificador padrão. O produto deve **existir tanto no ERP quanto na plataforma**. O corpo da requisição deve ser um SOAP Envelope.
-                  
-                  **Produtos em caixa:** Devem ser cadastrados no formato `EAN + C + Quantidade de unidades` (ex.: 7095159054443C12, representando o EAN 7095159054443 em uma caixa "C12")
-                  
-                  **Boas Práticas:**
-                  - Não integrar a cada alteração mínima de estoque; defina regras ou périodos;
-                  - Enviar apenas SKUs que sofreram alterações;
-                  - Quantidadesdevem ser números interios (sem vírgula ou pontos);
-                  - Para marcar como indisponível: `quantity = 0`;
-                  - Para tornar inativo: Estoque e preço zerados;
-                
-      parameters:
-        - in: header
-          name: Contente-Type
-          required: true
-          schema: { type: string }
-          example: application/xml
-        - in: header
-          name: Authorization
-          description: 'Envie "Basic <token_base64>" se preferir passar o token pré-codificado em vez de usuário/senha.'
-          required: true
-          schema:
-            type: string
-            example: "Basic dXN!YXJPBdjy1hcjsiwrhVuaGetc2Vuage="
-      requestBody:
-        required: true
-        content:
-          application:
-            schema:
-              $ref: '#/components/schemas/SetStockRequest'
-            examples:
-              unicoProduto:
-                summary: Exemplo estoque de um produto.
-                value: |
-                  <?xml version="1.0" encoding="UTF-8"?>
-                  <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                                    xmlns:stoc="http://www.accurate.com/acec/StockServices"
-                                    xmlns:stoc1="http://www.accurate.com/acec/Stock">
-                    <soapenv:Header/>
-                    <soapenv:Body>
-                      <stoc:setStockRequest>
-                        <stoc:stockList>
-                          <stoc:Stock>
-                             <stoc1:skuId>7891150058428</stoc1:skuId>
-                             <stoc1:quantity>300</stoc1:quantity>
-                            <stoc1:stockTypeSourceName>controlUnitQuantity</stoc1:stockTypeSourceName>
-                           </stoc:Stock>
-                          </stoc:stockList>
-                       </stoc:setStockRequest>
-                  </soapenv:Body>
-                  </soapenv:Envelope>
-              multiplosProdutos:
-                summary: Exemplo estoque de múltiplos produtos.
-                value: |
-                  <?xml version="1.0" encoding="UTF-8"?>
-                  <stoc:setStockRequest xmlns:stoc="http://www.accurate.com/acec/StockServices"  
-                                        xmlns:stoc1="http://www.accurate.com/acec/Stock">
-                    <stoc:stockList> 
-                      <stoc:Stock> 
-                        <stoc1:skuId>7095159054443</stoc1:skuId> 
-                        <stoc1:quantity>10</stoc1:quantity>
-                        <stoc1:stockTypeSourceName>controlUnitQuantity</stoc1:stockTypeSourceName>                    
-                      </stoc:Stock>
-                      <stoc:Stock> 
-                        <stoc1:skuId>7345156054544</stoc1:skuId> 
-                        <stoc1:quantity>20</stoc1:quantity>                           
-                        <stoc1:stockTypeSourceName>controlUnitQuantity</stoc1:stockTypeSourceName>                    
-                      </stoc:Stock>
-                      <stoc:Stock> 
-                        <stoc1:skuId>7395100054041</stoc1:skuId> 
-                        <stoc1:quantity>45</stoc1:quantity>                            
-                        <stoc1:stockTypeSourceName>controlUnitQuantity</stoc1:stockTypeSourceName>                    
-                      </stoc:Stock>
-                    </stoc:stockList> 
-                  </stoc:setStockRequest>
-      responses:
-        '200':
-          description: Resposta SOAP de sucesso
-          content:
-            application:
-              schema:
-                type: string
-              example: |
-                <?xml version = '1.0' encoding = 'UTF-8'?> 
-                <env:Envelope xmlns:env="http://schemas.xmlsoap.org/soap/envelope/" 
-                              xmlns:wsa="http://www.w3.org/2005/08/addressing"> 
-                  <env:Body> 
-                    <setStockResponse xmlns="http://www.accurate.com/acec/StockServices"> 
-                      <result>Sucesso</result> 
-                    </setStockResponse>
-                  </env:Body> 
-        '400':
-          description: Requisição inválida
-
-  #API LIMITE DE CRÉDITO (SOAP)
-  /voucherService/replaceVoucher:
-    post:
-      tags: [Limite de Crédito]
-      security:
-      - bearerAuth: []
-      summary: Recebe/atualiza limite de crédito (SOAP)
-      description: |
-        Este método permite que a plataforma receba informações sobre o limite de **crédito disponível para cada lojista**, quando esse crédito é fornecido pelo distribuidor.
-        A funcionalidade possibilita que clientes realizem compras utilizando a modalidade `boleto faturado`, com base nos valores informados pelo distribuidor.
-        É importante destacar que toda a responsabilidade pela cobrança dos valores e pela gestão de inadimplências é do distribuidor. Após a aprovação do cliente e a definição do limite de crédito, o lojista estará habilitado para utilizar essa modalidade de pagamento.
-        
-        **Boas Práticas:**
-
-        - Envie limites de crédito apenas para lojistas que terão acesso à modalidade.
-        - Para desabilitar o crédito de um cliente, envie uma requisição com o valor igual a zero (value = 0).
-        - Os valores de crédito não são cumulativos: o valor exibido para o lojista será sempre o da última requisição enviada.
-        - O campo `origin` é **obrigatório** e deve ser enviado como `SELLER`.
-        - Utilize ponto (`.`) como separador decimal.
-
-        
-        **Protocolo**
-          - SOAP 1.1 via HTTP POST (`Content-Type: text/xml; charset=utf-8`).
-        
-      requestBody:
-            required: true
-            content:
-              application:
-                schema:
-                  type: object
-                  $ref: '#/components/schemas/ReplaceVoucherRequest'
-                examples:
-                  exemploReplaceVoucher:
-                    summary: Requisição SOAP replaceVoucher
-                    value: |
-                        <soapenv:Envelope
-                          xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                          xmlns:vou="http://www.accurate.com/acec/VoucherServices"
-                          xmlns:cou="http://www.accurate.com/acec/coupon">
-                          <soapenv:Header/>
-                          <soapenv:Body>
-                            <vou:replaceVoucherRequest>
-                              <cou:coupons>
-                                <cou:coupon>
-                                  <cou:customerDocumentNr>09634978000110</cou:customerDocumentNr>
-                                  <cou:value>1700.00</cou:value>
-                                  <cou:origin>SELLER</cou:origin>
-                                </cou:coupon>
-                              </cou:coupons>
-                            </vou:replaceVoucherRequest>
-                          </soapenv:Body>
-                        </soapenv:Envelope>
-
-      responses:
-            '200':
-              description: Resposta de sucesso da plataforma
-              content:
-                application:
-                  schema:
-                     $ref: '#/components/schemas/ReplaceVoucherResponse'
-                  examples:
-                    sucesso:
-                      summary: Sucesso
-                      value: |
-                        <env:Envelopexmlns:env="http://schemas.xmlsoap.org/soap/envelope/"
-                                     xmlns:wsa="http://www.w3.org/2005/08/addressing"> 
-                          <env:Body> 
-                            <replaceVoucherResponsexmlns="http://www.accurate.com/acec/VoucherServices"> 
-                             <success>true</success> 
-                            </replaceVoucherResponse> 
-                          </env:Body> 
-                        </env:Envelope> 
-              
-            '400':
-              description: Requisição inválida (XML malformado ou campos obrigatórios ausentes)
-            '401':
-              description: Não autorizado
-            '500':
-              description: Erro interno do servidor
-
-  #API DE PREÇOS E POLITICAS (REST)      
-  /Prices/RestAPI:
-    post:
-      tags: [Preços] 
-      summary: Envia preços de produtos e politicas personalizadas. (REST)
-      description: |
-        Este método permite ao distribuidor enviar preços de produtos, criar políticas comerciais personalizadas, adicionar novos distribuidores a essas políticas e realocar distribuidores entre diferentes políticas de preço.
-        As políticas definem quais produtos, tabelas de preço e CNPJs estarão vinculados, garantindo flexibilidade na gestão comercial.
-        
-        **Tabelas de Preço:**
-
-          - DFL: Preço base (à vista) – Obrigatório para exibir no site.
-          - CRL-7 / CRL-14 / CRL-21 / CRL-28: Preços para boleto faturado (7, 14, 21, 28 dias) – Opcional em produção, obrigatório em homologação.
-
-          - CRL-7_14_21_28: Preço parcelado – Opcional.
-
-        **Boas Práticas:**
-
-         - Preço não pode ser negativo.
-         - Um lojista participa de apenas uma política.
-         - Atualize apenas produtos alterados; novos produtos são somados.
-         - Máx. 100 produtos por requisição.
-         - ID DEFAULT aplica preços a todos os lojistas sem política específica.
-         - IDs de políticas devem ser únicos (duplicados substituem anteriores).
-         - Todas as políticas devem conter preço DFL.
-            
-      operationId: postEnviarPolitica
-      security:
-        - bearerAuth: []
-     
+      - OAuth2 Order Resquest:
+          - read
+          - write
+      tags: [Order Request]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CustomPriceList'
-            examples:
-
-              Exemplo de Política Default (DFL):
-                description: | 
-                  Exemplo de política **DEFAULT**. Todos os lojistas não associados a nenhuma política específica
-                  herdam automaticamente os preços e regras desta política;
-                  Para mover um lojista de volta para a política **DEFAULT**, basta informar seu **CNPJ** no campo `customerDocumentList` vinculado
-                  ao `ID` da política Default.
-
-                  **Exemplo:**
-
-                      {
-                        "id": "NEW_FEB4",
-                        "criteria": [
-                          {
-                            "customerDocumentList": [
-                              "32860134000179"
-                            ]
-                          }
-                        ],
-                value: |
-                  {
-                  "id": "DEFAULT",
-                    "policy": {
-                      "customPriceList": [
-                        {
-                          "productPriceList": {
-                            "productPrice": [
-                              {"priceTp": "CRL-7",  "priceValue":  9.89},
-                              {"priceTp": "DFL",    "priceValue":  9.06}
-                            ]
-                          },
-                          "skuId": "7345156054544"
-                        },
-                        {
-                          "productPriceList": {
-                            "productPrice": [
-                              {"priceTp": "CRL-7",  "priceValue": 30.23},
-                              {"priceTp": "DFL",    "priceValue": 29.98}
-                            ]
-                          },
-                          "skuId": "7395100054041"
-                        },
-                        {
-                          "productPriceList": {
-                            "productPrice": [
-                              {"priceTp": "CRL-7",  "priceValue":  8.98},
-                              {"priceTp": "DFL",    "priceValue":  8.50}
-                            ]
-                          },
-                          "skuId": "7755150064031"
-                        }
-                      ]
-                    }
-                  }
-                  
-              Exemplos de Política Personalizadas:
-                description: |
-                  Essa requisição cria uma **nova política** diferente da `DEFAULT`, vinculando lojistas específicos pelo **CNPJ** `(via customerDocumentList)`
-                  e aplicando uma **tabela de preços customizadas** definida em `customPriceList`. Cada lojista passa a visualizar apenas os preços associados a essa política. 
-                value: |
-                  {
-                    "id": "NEW_FEB4",
-                    "criteria": [
-                      {
-                        "customerDocumentList": [
-                          "32860134000179"
-                        ]
-                      }
-                    ],
-                    "policy": {
-                      "customPriceList": [
-                        {
-                          "productPriceList": {
-                            "productPrice": [
-                             { 
-
-                                "priceTp": "DFL", 
-
-                                "priceValue": 90.32 
-
-                            }, 
-                              {
-                                "priceTp": "CRL-7_14_21",
-                                "priceValue": 92.65
-                              },
-                              {
-                                "priceTp": "DFL",
-                                "priceValue": 91.73
-                              }
-                            ]
-                          },
-                          "skuId": "7891150077294C4"
-                        },
-                        {
-                          "productPriceList": {
-                            "productPrice": [
-                              {
-                                "priceTp": "CRL-7_14_21",
-                                "priceValue": 73.72
-                              },
-                              {
-                                "priceTp": "DFL",
-                                "priceValue": 72.99
-                              }
-                            ],
-                            "skuId": "7891150077607"
-                          }
-                        },
-                        {
-                          "productPriceList": {
-                            "productPrice": [
-                              {
-                                "priceTp": "CRL-7_14_21",
-                                "priceValue": 56.57
-                              },
-                              {
-                                "priceTp": "DFL",
-                                "priceValue": 56
-                              }
-                            ]
-                          }
-                        }
-                      ]
-                    }
-                  }
-              Exemplo Gestão de Lojistas por Política via CNPJ e ID:
-                description: |
-                    É possível **adicionar novos lojistas** a uma política ou **mover lojista entre políticas**, utiliznado o
-                    **CNPJ** do lojista e o **ID da política.**
-
-                    - Um lojista só pode estar vinculado a **Uma política por vez,** sempre visualizando os preços da última política associada.
-                    - Ao incluir novos lojistas, eles serão adicionados **sem sobreescrever** os já existentes.
-                    - Para retornar um lojista à política **DEFAULT**, basta informar o **CNPJ** no campo `<customerDocumentList>` da política Default.
-                                                           
-                value:
-                  {
-                    "criteria": [
-                      {
-                        "customerDocumentList": [
-                          "09370426000323",
-                          "12367524000124",
-                          "23461003000401",
-                          "23571093000107"
-                        ]
-                      }
-                    ],
-                    "id": "CLR_7_14_21"
-                  }
-                
-      responses:
-        "200":
-          description: Resposta de sucesso.
-          content:
-            application/json:                              
-               example: 
-                  "sucess:true"
-
-  #API STATUS CLIENTE
-  /customerService/updateCustomer:
-    post:
-      tags: [Cadastro de Lojista | Status Customer]
-      summary: Atualiza status do lojista (SOAP)
-      security:
-      - bearerAuth: []
-      description: |
-        Quando um lojista se cadastra na plataforma, o status inicial enviado ao distribuidor é **PEN (pendente)**.
-        Com esse status, o lojista consegue visualizar a vitrine e fazer pedidos **à vista**.
-
-        Após receber o cadastro no ERP, o distribuidor pode definir o status como:
-        - **APV (aprovado)**: permite pedidos com **boleto faturado** (a prazo), desde que exista **limite de crédito** disponível.
-        - **RPV (reprovado)**: o lojista **não pode** fazer pedidos com **nenhuma forma de pagamento** e os produtos **não ficam disponíveis** para compra.
-
-        **Boas Práticas**
-        - Uma vez que o lojista sai de **PEN (pendente)**, **não é possível retornar** para esse status.
-        - Este método aceita apenas **APV** ou **RPV** no campo `status`.
-        - Envie o **CNPJ** somente com dígitos no `documentNr`.
-        - Atualizações são **idempotentes**: reenviar o mesmo status/lojista substitui o valor anterior.
-
-        **Protocolo**
-        - SOAP 1.1 via HTTP POST (`Content-Type: text/xml; charset=utf-8`).
-
-        **Objetos (inline)**
-
-        **updateCustomerRequest**
-        - `customer.documentNr` (**string**, 15, **obrigatório**): CNPJ do lojista (somente dígitos).
-        - `status` (**string**, 3, **obrigatório**): Status do lojista — **APV** (aprovado) ou **RPV** (reprovado).
-
-        **updateCustomerResponse**
-        - `status` (**string**, 3, **obrigatório**): Resultado do processamento — **OK** quando a atualização foi aplicada com sucesso.
-
-      requestBody:
-        required: true
-        content:
-         text/xml:
-          schema:
-            type: object
-            description: Corpo lógico do SOAP Body (cus:updateCustomerRequest).
-            xml:
-              name: updateCustomerRequest
-              namespace: "http://www.accurate.com/acec/CustomerServices"
-            properties:
-                customer:
-                  type: object
-                  description: Dados do cliente (lojista).
-                  xml:
-                    name: customer
-                    namespace: "http://www.accurate.com/acec/Customer"
-                  properties:
-                    documentNr:
-                      type: string
-                      description: CNPJ do lojista (somente dígitos).
-                      maxLength: 15
-                      pattern: '^\d+$'
-                      example: "09554766000110"
-                      xml:
-                        name: documentNr
-                  required: [documentNr]
-                status:
+              type: object
+              required:
+                - type
+                - correlation_id
+                - demands
+              properties:
+                type:
                   type: string
-                  description: Status do lojista — APV (aprovado) ou RPV (reprovado). Não enviar PEN.
-                  maxLength: 3
-                  enum: [APV, RPV]
-                  example: "APV"
-                  xml:
-                    name: status
-                    namespace: "http://www.accurate.com/acec/CustomerServices"
-            required: [customer, status]
-          examples:
-            exemploUpdateCustomer:
-              summary: Requisição SOAP updateCustomer
-              value: |
-                <soapenv:Envelope xmlns:cli="http://www.accurate.com/acec/Customer"
-                                  xmlns:cus="http://www.accurate.com/acec/CustomerServices"
-                                  xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
-                  <soapenv:Header/>
-                  <soapenv:Body>
-                    <cus:updateCustomerRequest>
-                      <cli:customer>
-                        <cli:documentNr>09554766000110</cli:documentNr>
-                      </cli:customer>
-                      <cus:status>APV</cus:status>
-                    </cus:updateCustomerRequest>
-                  </soapenv:Body>
-                </soapenv:Envelope>
+                  maxLength: 25
+                  description: Valor fixo "ErpDemandCapture"
+                  example: ErpDemandCapture
+                correlation_id:
+                  type: string
+                  maxLength: 255
+                  description: ID único para rastreamento ponta-a-ponta da requisição
+                  example: AGy9b4x-GjqnkPtyVqUE08oHBZ-test
+                demands:
+                  type: array
+                  description: | 
+                    Lista de pedidos a serem processados.  
+                    ⚠️ Observação: existe uma limitação de até 100 requisições por chamada.
+                  items:
+                    type: object
+                    required:
+                      - seller_code
+                      - erp_demand_id
+                      - cnpj_number
+                      - salesman_cpf
+                      - payment_term
+                      - seller_payment_method
+                      - credit_type
+                      - items
+                    properties:
+                      seller_code:
+                        type: string
+                        maxLength: 10
+                        description: Código do seller
+                      erp_demand_id:
+                        type: string
+                        maxLength: 50
+                        description: Identificador único do pedido no ERP
+                        example: 827-demo123
+                      cnpj_number:
+                        type: string
+                        maxLength: 50
+                        description: CNPJ do cliente
+                        example: 17.120.206/0001-58
+                      salesman_cpf:
+                        type: string
+                        maxLength: 25
+                        description: CPF do vendedor
+                        example: 1785694263
+                      seller_payment_method:
+                        type: string
+                        maxLength: 25
+                        description: Método de pagamento, sempre “boleto faturado”
+                        example: boleto faturado
+                      payment_term:
+                        type: string
+                        maxLength: 50
+                        description: Condição de pagamento
+                        example: CRL-21_28_35_42_49
+                      credit_type:
+                        type: string
+                        maxLength: 50
+                        description: Tipo de crédito, sempre “seller-credit”
+                        example: seller-credit
+                      coupon_code:
+                        type: string
+                        description: | 
+                          Código do cupom aplicado.
 
+                          ⚠️ Observação: Quando não houve cupom deixar o campo em branco.
+                        example: ULBR123_456
+                      items:
+                        type: array
+                        description: | 
+                         Lista de SKUs por pedido a ser processado.  
+                          ⚠️ Observação: existe uma limitação de até 350 SKUs por pedido.
+                        items:
+                          type: object
+                          required:
+                            - sku
+                            - quantity
+                          properties:
+                            sku:
+                              type: string
+                              description: Código SKU do produto
+                              example: 7894000010038C6
+                            ean:
+                              type: string
+                              description: Código produto
+                              example: 7894000010039
+                            quantity:
+                              type: integer
+                              description: Quantidade solicitada
+                              example: 10
       responses:
         '200':
-          description: Resposta de sucesso da plataforma
-          content:
-            text/xml:
-              schema:
-                type: object
-                description: Corpo lógico do SOAP Body (updateCustomerResponse).
-                xml:
-                  name: updateCustomerResponse
-                  namespace: "http://www.accurate.com/acec/CustomerServices"
-                properties:
-                  status:
-                    type: string
-                    description: Resultado do processamento (OK em caso de sucesso).
-                    maxLength: 3
-                    enum: [OK]
-                    example: "OK"
-                    xml:
-                      name: status
-              examples:
-                sucesso:
-                  summary: Sucesso
-                  value: |
-                    <?xml version='1.0' encoding='UTF-8'?>
-                    <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
-                    <soapenv:Header/>
-                    <soapenv:Body>
-                      <updateCustomerResponse xmlns="http://www.accurate.com/acec/CustomerServices">
-                        <status>OK</status>
-                      </updateCustomerResponse>
-                    </soapenv:Body>
-                    </soapenv:Envelope>
+          description: Pedido recebido com sucesso
         '400':
-          description: Requisição inválida (XML malformado ou campos obrigatórios ausentes)
+          description: Requisição inválida
         '401':
-         description: Não autorizado
-        '500':
-         description: Erro interno do servidor
+          description: EC001 - Falha na autorização do vendedor. Conta incorreta ou temporariamente desativada.
+        '403':
+          description: EC002 - Falha na autorização do cliente. Não foi possível realizar login.
+        '404':
+          description: EC003 - Dados do cliente não disponíveis.
+        '409':
+          description: |
+            EC004 - Produto não encontrado: {{sku}}
 
-#API TRACKING DE PEDIDO
-  /trackingService/captureTracking:
+            EC005 - Falha ao adicionar ao carrinho: quantidade indisponível para {{sku}}
+
+            EC006 - Falha ao adicionar ao carrinho: preço não disponível para {{sku}}
+
+            EC007 - Método de pagamento não disponível ou inválido: {{payment_method_code}}
+
+            EC008 - Cupom não disponível: {{coupon_code}}
+
+            EC009 - Falha ao finalizar pedido: não foi possível processar o pedido {{seller_order_code}}
+
+  /order-response:
     post:
-      tags: [Tracking]
+      summary: Retorna o status dos pedidos processados pelo Magento
       security:
-        - bearerAuth: []
-      summary: Envia atualizações de tracking do pedido (SOAP)
-      description: |
-        As informações de tracking permitem que o lojista acompanhe o ciclo de vida do pedido, desde a aprovação até a entrega ou cancelamento. Esse recurso é essencial para manter o lojista informado sobre cada etapa do processo.
-
-        **Status disponíveis**
-        - **WMS**: Separação e embalagem do pedido (opcional).
-        - **NFS**: Emissão da nota fiscal, incluindo informações detalhadas dos produtos e quantidades faturadas (**obrigatório**).
-        - **FAT**: Faturamento concluído; após esse status, não é permitido enviar novas NFS (**obrigatório**).
-        - **ETR**: Pedido saiu para entrega (em rota) (opcional).
-        - **ENT**: Entrega confirmada ao lojista (**obrigatório**).
-        - **CAN**: Pedido cancelado pelo distribuidor ou lojista (**obrigatório quando houver cancelamento**).
-
-        **Boas práticas**
-        - Para pedidos com pagamento gerenciado pela plataforma (Boleto à vista, Pix, Vale, Cartão), envie tracking **apenas após a confirmação do pagamento**.
-        - Em trackings **NFS**:
-          - Itens bonificados (`skuType = FFR`) devem ter `unitPrice = 0`.
-          - Itens normais (`skuType = NOR`) devem ter o preço real.
-        - Uma tracking **NFS** só pode estar associada a **um único pedido**; um pedido pode ter **várias NFS**.
-        - Para combos (`kit Sku Id` informado), envie todos os produtos do combo na NFS.
-        - Após o envio da **tracking FAT** para um determinado pedido, não serão aceitas novas **trackings do tipo NFS**. Caso o **istribuidor** envie uma tracking NFS após a FAT, essa atualização será desconsiderada pela plataforma.
-        - Se um pedido faturado não for entregue ou for recusado, envie uma tracking **CAN** para permitir reembolso.
-
-        **Protocolo**
-        - SOAP 1.1 via HTTP POST (`Content-Type: text/xml; charset=utf-8`).
-        - Operação: `captureTracking` no serviço `TrackingService`.
-
+        - OAuth2 Order Status:
+          - read
+          - write
+      tags: [Order Status]
       requestBody:
         required: true
         content:
-          text/xml:
+          application/json:
             schema:
-              $ref: '#/components/schemas/captureTrackingRequest'
-            examples: 
-              trackingWMS:
-                summary: Exemplo envio de tracking WMS (opcional)
-                value: |
-                        <?xml version="1.0" encoding="UTF-8"?>
-                        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                              xmlns:trac="http://www.accurate.com/acec/TrackingServices"
-                              xmlns:trac1="http://www.accurate.com/acec/Tracking"
-                              xmlns:inv="http://www.accurate.com/acec/InvoiceInfo">
-                           <soapenv:Body>
-                            <trac:captureTrackingRequest>
-                              <trac1:trackingList>
-                                <trac1:tracking>
-                                  <trac1:orderId>7885532</trac1:orderId>
-                                  <trac1:controlPointId>WMS</trac1:controlPointId>
-                                  <trac1:controlPointNm>Os produtos estão em separação e embalagem.</trac1:controlPointNm>
-                                  <trac1:occurrenceDt>2024-08-05T09:35:22.053-06:00</trac1:occurrenceDt>
-                                </trac1:tracking>
-                              </trac1:trackingList>
-                            </trac:captureTrackingRequest>
-                          </soapenv:Body>
-                        </soapenv:Envelope>
-              trackingNFS:
-                summary: Exemplo envio de tracking NFS (obrigatório)
-                value: |
-                    <?xml version="1.0" encoding="UTF-8"?>
-                    <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                                      xmlns:trac="http://www.accurate.com/acec/TrackingServices"
-                                      xmlns:trac1="http://www.accurate.com/acec/Tracking"
-                                      xmlns:inv="http://www.accurate.com/acec/InvoiceInfo">
-                    <soapenv:Body>
-                    <trac:captureTrackingRequest>
-                      <trac1:trackingList>
-                        <trac1:tracking>
-                          <trac1:orderId>7885532</trac1:orderId>
-                          <trac1:controlPointId>NFS</trac1:controlPointId>
-                          <trac1:controlPointNm>Nota fiscal emitida.</trac1:controlPointNm>
-                          <trac1:occurrenceDt>2024-08-05T11:32:24.058-03:00</trac1:occurrenceDt>
-                          <trac1:invoiceURL>https://nfe.fazenda.sp.gov.br/ConsultaNFe/consulta/publica/ConsultarNFe.aspx?chaveAcesso=36170989593442000146660010000052879812958745</trac1:invoiceURL>
-                          <inv:invoiceInfo>
-                            <inv:issuerDocumentNr>09.666.999/0001-66</inv:issuerDocumentNr>
-                            <inv:invoiceNumber>86662</inv:invoiceNumber>
-                            <inv:invoiceSerialNumber>1</inv:invoiceSerialNumber>
-                            <inv:invoiceEmissionDate>2024-08-05T11:28:23.058-03:00</inv:invoiceEmissionDate>
-                            <inv:invoiceEletronicKey>36170989593442000146660010000052879812958745</inv:invoiceEletronicKey>
-                            <inv:objectDataList>
-                              <inv:objectData>
-                                <inv:objectId>DFV8666P96663BRS</inv:objectId>
-                              </inv:objectData>
-                            </inv:objectDataList>
-                          </inv:invoiceInfo>
-                          <trac1:skuDeliveryTrackingList>
-                            <trac1:skuDeliveryTracking>
-                              <trac1:skuId>78942666</trac1:skuId>
-                              <trac1:preparedQt>16</trac1:preparedQt>
-                              <trac1:unitPrice>11.04</trac1:unitPrice>
-                              <trac1:kitSkuId>16663546</trac1:kitSkuId>
-                            </trac1:skuDeliveryTracking>
-                            <trac1:skuDeliveryTracking>
-                              <trac1:skuId>77866677</trac1:skuId>
-                              <trac1:preparedQt>2</trac1:preparedQt>
-                              <trac1:unitPrice>0.00</trac1:unitPrice>
-                              <trac1:kitSkuId>16663546</trac1:kitSkuId>
-                            </trac1:skuDeliveryTracking>
-                          </trac1:skuDeliveryTrackingList>
-                        </trac1:tracking>
-                      </trac1:trackingList>
-                    </trac:captureTrackingRequest>
-                    </soapenv:Body>
-                    </soapenv:Envelope>
-           
-              trackingFAT:
-                summary: Exemplo envio de tracking FAT (obrigatório)
-                value: |
-                  <?xml version="1.0" encoding="UTF-8"?>
-                  <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" 
-                                    xmlns:trac="http://www.accurate.com/acec/TrackingServices" 
-                                    xmlns:trac1="http://www.accurate.com/acec/Tracking" 
-                                    xmlns:inv="http://www.accurate.com/acec/InvoiceInfo"> 
-                    <soapenv:Body> 
-                        <trac:captureTrackingRequest> 
-                          <trac1:trackingList> 
-                              <trac1:tracking> 
-                                <trac1:orderId>7885532</trac1:orderId> 
-                                <trac1:controlPointId>FAT</trac1:controlPointId> 
-                                <trac1:controlPointNm>O pedido foi faturado.</trac1:controlPointNm> 
-                                <trac1:occurrenceDt>2024-08-05T12:30:21.058-03:00</trac1:occurrenceDt> 
-                              </trac1:tracking> 
-                          </trac1:trackingList> 
-                        </trac:captureTrackingRequest> 
-                    </soapenv:Body> 
-                    </soapenv:Envelope>
-              
-              trackingERT:
-                summary: Exemplo envio de tracking ERT (opcional)
-                value: |
-                  <?xml version="1.0" encoding="UTF-8"?>
-                  <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" 
-                                    xmlns:trac="http://www.accurate.com/acec/TrackingServices" 
-                                    xmlns:trac1="http://www.accurate.com/acec/Tracking" 
-                                    xmlns:inv="http://www.accurate.com/acec/InvoiceInfo"> 
-                      <soapenv:Body> 
-                          <trac:captureTrackingRequest> 
-                            <trac1:trackingList> 
-                                <trac1:tracking> 
-                                  <trac1:orderId>788553</trac1:orderId> 
-                                  <trac1:controlPointId>ETR</trac1:controlPointId> 
-                                  <trac1:controlPointNm>Entregue a transportadora</trac1:controlPointNm> 
-                                  <trac1:occurrenceDt>2024-08-28T18:35:25.058-03:00</trac1:occurrenceDt>               
-                                  <trac1:invoiceURL>https://nfe.fazenda.sp.gov.br/ConsultaNFe/consulta/publica/ConsultarNFe.aspx?chaveAcesso=36170989593442000146660010000052879812958745</trac1:invoiceURL> 
-                                  <inv:invoiceInfo> 
-                                      <inv:issuerDocumentNr>09666999000166</inv:issuerDocumentNr> 
-                                      <inv:invoiceNumber>86662</inv:invoiceNumber> 
-                                      <inv:invoiceSerialNumber>1</inv:invoiceSerialNumber> 
-                                      <inv:invoiceEmissionDate>2024-08-05T11:28:23.058-03:00</inv:invoiceEmissionDate>                  
-                                      <inv:invoiceEletronicKey>36170989593442000146660010000052879812958745</inv:invoiceEletronicKey> 
-                                      <inv:objectDataList> 
-                                        <inv:objectData> 
-                                            <inv:objectId>DFV8666P96663BRS</inv:objectId> 
-                                        </inv:objectData> 
-                                      </inv:objectDataList> 
-                                  </inv:invoiceInfo> 
-                                </trac1:tracking> 
-                            </trac1:trackingList> 
-                          </trac:captureTrackingRequest> 
-                      </soapenv:Body> 
-                    </soapenv:Envelope> 
-              
-              trackingENT:
-                summary: Exemplo envio de tracking ENT (obrigatório)
-                value: |
-                  <?xml version="1.0" encoding="UTF-8"?>
-                  <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"  
-                                    xmlns:trac="http://www.accurate.com/acec/TrackingServices" 
-                                    xmlns:trac1="http://www.accurate.com/acec/Tracking" 
-                                    xmlns:inv="http://www.accurate.com/acec/InvoiceInfo"> 
+              type: object
+              required:
+                - correlation_id
+                - type
+                - orders
+              properties:
+                correlation_id:
+                  type: string
+                  maxLength: 255
+                  description: |
+                     Tracking ID dos pacotes com pedidos processados pelo magento.
 
-                    <soapenv:Body> 
-                        <trac:captureTrackingRequest> 
-                          <trac1:trackingList> 
-                              <trac1:tracking> 
-                                <trac1:orderId>7885532</trac1:orderId> 
-                                <trac1:controlPointId>ENT</trac1:controlPointId> 
-                                <trac1:controlPointNm>Entrega concluída.</trac1:controlPointNm> 
-                                <trac1:occurrenceDt>2024-08-29T09:40:21.058-03:00</trac1:occurrenceDt> 
-                              </trac1:tracking> 
-                          </trac1:trackingList> 
-                        </trac:captureTrackingRequest> 
-                    </soapenv:Body> 
-                  </soapenv:Envelope>
+                     ⚠️ Observação: Processo assincrono, correlation_Id diferente do enviado no Order Request.
+                  example: AHx7k9v-LMpnqzXrTwRE91ycVAZ-test
+                type:
+                  type: string
+                  maxLength: 25
+                  description: Valor fixo "ErpDemandCapture"
+                  example: ErpDemandCapture
+                orders:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - seller_code
+                      - erp_demand_id
+                      - cnpj_number
+                      - increment_id
+                      - product_success_count
+                      - product_failure_count
+                      - total_item_count
+                      - order_status
+                      - coupon_applied_status
+                      - items
+                    properties:
+                      seller_code:
+                        type: string
+                        maxLength: 10
+                        description: Código do seller
+                      erp_demand_id:
+                        type: string
+                        maxLength: 50
+                        description: | 
+                          Identificador único do pedido no ERP do Seller.
 
-              trackingCAN: 
-                summary: Exemplo envio de tracking CAN (obrigatório quando houver cancelamento)
-                value: |
-                    <?xml version="1.0" encoding="UTF-8"?>
-                    <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" 
-                                      xmlns:trac="http://www.accurate.com/acec/TrackingServices" 
-                                      xmlns:trac1="http://www.accurate.com/acec/Tracking" 
-                                      xmlns:inv="http://www.accurate.com/acec/InvoiceInfo"> 
-
-                        <soapenv:Body> 
-                            <trac:captureTrackingRequest> 
-                              <trac1:trackingList> 
-                                  <trac1:tracking> 
-                                    <trac1:orderId>7885532</trac1:orderId> 
-                                    <trac1:controlPointId>CAN</trac1:controlPointId> 
-                                    <trac1:controlPointNm>Pedido cancelado.</trac1:controlPointNm> 
-                                    <trac1:occurrenceDt>2024-08-29T11:18:21.058-03:00</trac1:occurrenceDt> 
-                                  </trac1:tracking> 
-                              </trac1:trackingList> 
-                            </trac:captureTrackingRequest> 
-                        </soapenv:Body> 
-                      </soapenv:Envelope>
-
+                          ⚠️ Observação: Informado na Order Request.
+                      cnpj_number:
+                        type: string
+                        maxLength: 25
+                        description: CNPJ do cliente
+                      increment_id:
+                        type: string
+                        maxLength: 50
+                        description: ID do pedido gerado no Magento
+                      product_success_count:
+                        type: integer
+                        description: Quantidade de produtos processados com sucesso
+                      product_failure_count:
+                        type: integer
+                        description: Quantidade de produtos com falha
+                      total_item_count:
+                        type: integer
+                        description: Quantidade total de itens no pedido
+                      order_error_code:
+                        type: string
+                        description: Código de erro geral do pedido, se houver
+                      order_status:
+                        type: string
+                        enum: [success, failed, partial]
+                        description: Status geral do pedido
+                      coupon_applied_status:
+                        type: string
+                        enum: [success, failed]
+                        description: Status da aplicação do cupom
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          required:
+                            - sku
+                            - status
+                            - error_code
+                          properties:
+                            sku:
+                              type: string
+                              description: SKU do produto
+                            status:
+                              type: string
+                              enum: [success, failed]
+                              description: Status do processamento do item
+                            error_code:
+                              type: string
+                              description: Código de erro do item, se houver
       responses:
-        "200":
-          description: Resposta de sucesso.
-          content:
-            application:                              
-               example: |
-                    <?xml version = '1.0' encoding = 'UTF-8'?> 
-                    <env:Envelope xmlns:env="http://schemas.xmlsoap.org/soap/envelope/"> 
-                      <env:Body> 
-                       <captureTrackingResponse xmlns="http://www.accurate.com/acec/TrackingServices"> 
-                        <success>true</success> 
-                          </captureTrackingResponse> 
-                      </env:Body> 
-                    </env:Envelope>            
+        '200':
+          description: Retorno recebido com sucesso
         '400':
-          description: Requisição inválida (XML malformado ou campos obrigatórios ausentes)
-        '401':
-         description: Não autorizado
-        '500':
-         description: Erro interno do servidor
+          description: Requisição inválida
+        '409':
+          description: Conflito de dados ou falha no processamento de itens
 
 components:
-  # AUTHENTICAÇÃO DEFINIÇÕES
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+    OAuth2 Order Resquest:
+      type: oauth2
+      description: Ambiente de Autenticação fornecida pelo Compra-Agora.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://ams-prd-a2a.prod.unilever.apimanagement.eu20.hana.ondemand.com/OAuth/token
+          tokenUrl: https://ams-prd-a2a.prod.unilever.apimanagement.eu20.hana.ondemand.com/OAuth/token
+          scopes:
+            read: Permite leitura de dados
+            write: Permite escrita de dados
 
-  #SCHEMA DE OBJETOS
+    OAuth2 Order Status:
+      type: oauth2
+      description: Ambiente de autenticação fornecida pelo distribuidor.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://auth.distribuidor.com/oauth/authorize
+          tokenUrl: https://auth.distribuidor.com/oauth/token
+          scopes:
+            read: Permite leitura de dados
+            write: Permite escrita de dados
   schemas:
     AuthTokenResponse:
-      type: object
-      properties:
-        access_token:
-          type: string
-          maxLength: 100
-          description: Token de autenticação para envio em headers Authorization.
-        token_type:
-          type: string
-          maxLength: 100
-          description: Tipo do token (sempre "bearer").
-
-        refresh_token:
-          type: string
-          maxLength: 100
-          description: Token usado para renovar o access_token.
-        expires_in:
-          type: number
-          description: Tempo de validade do token em milissegundos.
-        scope:
-          type: string
-          maxLength: 100
-          description: Escopo do usuário.
-        profile_id:
-          type: number
-          nullable: true
-          description: Identificador do perfil do usuário (opcional).
-        authorities:
-          type: array
-          description: Lista de permissões do usuário.
-          items:
-            type: string
-        user_id:
-          type: number
-          nullable: true
-          description: Identificador do usuário (opcional).
-      required:
-        - access_token
-        - token_type
-        - refresh_token
-        - expires_in
-        - scope
-        - authorities
-
-    SetStockRequest:
-      type: object
-      description: Estrutura lógica do conteúdo do Body (Sem o Envelope SOAP)
-      properties:
-        stockList:
-          type: array
-          description: Array de Stock
-          items:
-            $ref: '#/components/schemas/Stock'
-      required: [stockList]
-
-    Stock:
-      type: object
-      description: item de estoque
-      properties:
-        skuid:
-          type: string
-          maxLength: 30
-          description: Número do SKU
-          example: "7891150058428"
-        stockType:
-          type: integer
-          description: Disponibilidade (0=indisponivel, 1=disponivel)
-          enum: [0, 1]
-          example: 1
-        stockTypeSourceName:
-          type: string
-          description: Quando controlado por unidade, usar "controlUnitQuantity"
-          example: "controlUnitQuantity"
-        quantity:
-          type: integer
-          minimum: 0
-          description: Obrigatorio se 'stockTypeSourceName' for enviado; Caso contrario, opcional
-          example: 300
-      required: [skuid]
-    # Utilizado na requisição POST PREÇO - Gestão de lojistas
-    Criteria:
         type: object
-        description: Critério de políticas de preço
         properties:
-          customerDocumentList: 
+          access_token:
             type: string
-            maxLength: 15
-            description: CNPJ lojista  
-            example:  328601340001795
-        required:
-          - customerDocumentList
-          
-    Policy:
-      type: object
-      description: Descrição dos criterios das politicas de preço
-      properties:
-        customerPriceList:
-          type: array
-          description: Lista de preços customizados
-          items:
-            $ref: '#/components/schemas/CustomPriceList'
-        paymentList:
-          type: object
-          description: Lista de tipo de pagamento
-      required:
-        - customerPriceList
-        
-    CustomPriceList:
-      type: object
-      description: Lista de preço de cliente.
-      properties:
-        productPriceList:
-          type: array
-          description: Lista de Preços
-          items:
-            $ref: '#/components/schemas/ProductPriceList'
-        skuid:
-          type: string
-          description: ID do Produtos
-          maxLength: 30 
-      required:
-          - productPriceList
-          - skuid
-
-    ProductPriceList:
-      description: Lista de tipos de preços do SKU 
-      properties:
-        ProductPrice:
-          type: array
-          description: Lista de preços associados ao SKU.
-          items:
-            $ref: '#/components/schemas/ProductPrice'
-          required:
-            - ProductPrice
-          
-    ProductPrice:
-      type: object
-      required: 
-        - priceTip
-        - priceValue
-      properties:
-        priceTip:
-          type: string
-          maxLength: 10
-          description: Tipos de preços de acordo com a tabela abaixo. 
-        priceValue:
-          type: integer
-          description: Valor do produto
-        
-    ReplaceVoucherRequest:
-        type: object
-        description: Estrutura lógica do corpo do replaceVoucher (dentro do envelope SOAP).
-        xml:
-          name: replaceVoucherRequest
-          namespace: "http://www.accurate.com/acec/VoucherServices"
-        properties:
-          coupons:
-            type: array
-            description: Lista de atualizações de limite de crédito.
-            xml:
-              name: coupons
-              wrapped: true
-            items:
-              $ref: '#/components/schemas/Coupon'
-        required: [coupons]
-
-    Coupon:
-        type: object
-        description: Atualização de limite de crédito para um lojista.
-        xml:
-          name: coupon
-          namespace: "http://www.accurate.com/acec/coupon"
-        properties:
-          customerDocumentNr:
+            maxLength: 100
+            description: Token de autenticação para envio em headers Authorization.
+          token_type:
             type: string
-            description: CNPJ do lojista (somente dígitos).
-            maxLength: 15
-            pattern: '^\d+$'
-            example: "09634978000110"
-            xml:
-              name: customerDocumentNr
-          value:
-            type: number
-            format: double
-            description: Valor disponível para o limite de crédito. Use ponto (.) como separador decimal.
-            minimum: 0
-            maximum: 9999999999999.99   # precisão 15, escala 2 (15.2)
-            multipleOf: 0.01
-            example: 1700.00
-            xml:
-              name: value
-          origin:
-            type: string
-            description: Origem do crédito; **enviar `SELLER`**.
-            maxLength: 15
-            enum: [SELLER]
-            example: "SELLER"
-            xml:
-              name: origin
-        required: [customerDocumentNr, value, origin]
-
-    ReplaceVoucherResponse:
-        type: object
-        description: Resposta do serviço replaceVoucher.
-        xml:
-          name: replaceVoucherResponse
-          namespace: "http://www.accurate.com/acec/VoucherServices"
-        properties:
-          success:
-            type: string
-            description: Indica se o limite foi recebido com sucesso ou se houve erro.
-            maxLength: 255
-            example: "true"
-            xml:
-              name: success
-
-#Schemas captureTracking
-    captureTrackingRequest:
-      type: object
-      description: Corpo lógico do SOAP Body (trac:captureTrackingRequest).
-      properties:
-        trackingList :
-          type: array
-          description: Lista de Status do Pedido.
-          items:
-            $ref: '#/components/schemas/tracking'
-      required:
-        - trackingList
-               
-    tracking:
-      type: object
-      description: Status do pedido.
-      properties:
-        orderId:
-          type: string
-          maxLength: 20
-          description: Identificador do Pedido.
-        controlPointId:
-          type: string
-          maxLength: 5
-          description: Identificador do ponto de controle (Verificar na tabela Tipos de Tracking).
-        controlPointNm:
-          type: string
-          maxLength: 100
-          description: Descrição do ponto de controle
-        occurrenceDt:
-          type: string
-          format: date-time
-          description: 	Data da ocorrência do evento - (Formato date-time segue o padrão ISO 8601).
-        invoiceUrl:
-          type: string
-          maxLength: 2500
-          description: URL de acesso a nota fiscal eletrônica.
-        invoiceInfo:
-          type: object
-          description: Informações adicionais sobre nota fiscal.
-          $ref: '#/components/schemas/invoiceInfo'
-        skuDeliveryTrackingList:
-          type: object
-          description: Lista de todos os itens faturados.
-          $ref: '#/components/schemas/skuDeliveryTrackingList'
-      required:
-        - orderId
-        - controlPointId
-        - controlPointNm
-        - occurrenceDt
-        - invoiceUrl
-        - invoiceInfo
-        - skuDeliveryTrackingList
-
-    invoiceInfo:
-      type: object
-      description: Informações sobre NOTA fiscal.
-      properties: 
-        issuerDocumentNr:
-          type: string
-          maxLength: 15
-          description: CNPJ Emissor.
-        invoiceNumber:
-          type: string
-          maxLength: 20
-          description: Número da nota fiscal
-        invoiceSerialNumber:
-          type: string
-          maxLength: 255
-          description: Número de série
-        invoiceEmissionDate:
-          type: string
-          format: date-time
-          description: Data da emissão - (Formato date-time segue o padrão ISO 8601).
-        invoiceEletronicKey:
-          type: string
-          maxLength: 255
-          description: Chave de acesso da nota fiscal
-        objectDataList: #questionar o Caliman
-          type: array
-          description: Dados específicos relacionados ao tracking.
-          items:
-            $ref: '#/components/schemas/tracking'
-      required:
-        - issuerDocumentNr
-        - invoiceNumber
-        - invoiceSerialNumber
-        - invoiceEmissionDate
-        - invoiceEletronicKey
-
-    skuDeliveryTrackingList:
-      type: object
-      description: Lista de SKUs que foram faturados.
-      properties:
-        skuDeliveryTracking:
-          type: array
-          items:
-            $ref: '#/components/schemas/skuDeliveryTracking'
-      required:
-        - skuDeliveryTracking
-    
-    skuDeliveryTracking:
-      type: object
-      description: SKUs faturados.
-      properties:
-        skuId: 
-          type: string
-          maxLength: 30
-          description: EAN do SKU.
-        unitPrice:
-          type: number
-          multipleOf: 0.01
-          description: Valor unitário faturado com até 2 casas decimais (use ponto como separador decimal). 
-        preparedQt:
-          type: integer
-          description: Quantidade faturada.
-        kitSkuId:
-          type: string
-          maxLength: 30
-          description: > 
-            Id do KIT do SKU. (Obrigatório apenas para SKUs que fazem parte de um KIT. Essa informação e resgatada no XML do pedido que possui kit.)
-      required: 
-        - skuId
-        - unitPrice
-        - preparedQt
-        
-
-          
-           
-
-
-
-
-           
-          
-
-
-      
-
-
-                                
+            maxLength: 100
+            description: Tipo do token (sempre "bearer").
