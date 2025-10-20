@@ -16,12 +16,12 @@ info:
   version: 0.1.1
 
 servers: 
-  #- url: https://unileverapiservicesqa.test01.apimanagement.eu20.hana.ondemand.com/
-  # description: Servidor de (Operação - Homologação)
+  - url: https://unileverapiservicesqa.test01.apimanagement.eu20.hana.ondemand.com/
+    description: Servidor de (Operação - Homologação)
   #- url: https://ams-qas-a2a.it-cpi023-rt.cfapps.eu20-001.hana.ondemand.com/http/CABR/BulkOrderServices/OrderStatus
   # description: Servidor de (Autenticação - Homologação)
-  - url: https://ams-prd-a2a.prod.unilever.apimanagement.eu20.hana.ondemand.com:443/CABR/BulkOrderServices/Orders
-    description: Servidor de (Operação)
+  #- url: https://ams-prd-a2a.prod.unilever.apimanagement.eu20.hana.ondemand.com:443/CABR/BulkOrderServices/Orders
+  #  description: Servidor de (Operação)
 
 paths:
   /demand-capture:
@@ -139,26 +139,7 @@ paths:
           description: Pedido recebido com sucesso
         '400':
           description: Requisição inválida
-        '401':
-          description: EC001 - Falha na autorização do vendedor. Conta incorreta ou temporariamente desativada.
-        '403':
-          description: EC002 - Falha na autorização do cliente. Não foi possível realizar login.
-        '404':
-          description: EC003 - Dados do cliente não disponíveis.
-        '409':
-          description: |
-            EC004 - Produto não encontrado: {{sku}}
-
-            EC005 - Falha ao adicionar ao carrinho: quantidade indisponível para {{sku}}
-
-            EC006 - Falha ao adicionar ao carrinho: preço não disponível para {{sku}}
-
-            EC007 - Método de pagamento não disponível ou inválido: {{payment_method_code}}
-
-            EC008 - Cupom não disponível: {{coupon_code}}
-
-            EC009 - Falha ao finalizar pedido: não foi possível processar o pedido {{seller_order_code}}
-
+        
   /order-response:
     post:
       summary: Retorna o status dos pedidos processados pelo Magento
@@ -237,7 +218,11 @@ paths:
                         description: Quantidade total de itens no pedido
                       order_error_code:
                         type: string
-                        description: Código de erro geral do pedido, se houver
+                        enum: [EC001, EC002, EC003, EC007, EC008, EC009,  EC010, EC011]
+                        description: | 
+                          Código de erro geral do pedido
+
+                          ⚠️ Observação: A descrição detalhada dos erros estarão disponiveis na seção de Response do documento. Existem destinção de erros de pedidos e erros de produtos.
                       order_status:
                         type: string
                         enum: [success, failed, partial]
@@ -254,6 +239,7 @@ paths:
                             - sku
                             - status
                             - error_code
+                            - order_error_code
                           properties:
                             sku:
                               type: string
@@ -264,14 +250,42 @@ paths:
                               description: Status do processamento do item
                             error_code:
                               type: string
-                              description: Código de erro do item, se houver
+                              enum: [EC004, EC005, EC006]
+                              description: |
+                                 Código de erro do item, se houver
+
+                                 ⚠️ Observação: A descrição detalhada dos erros estarão disponiveis na seção de Response do documento; Existem destinção de erros de pedidos e erros de produtos.
+
+
       responses:
-        '200':
-          description: Retorno recebido com sucesso
-        '400':
-          description: Requisição inválida
-        '409':
-          description: Conflito de dados ou falha no processamento de itens
+      
+        'default':
+            description: |
+              ### HTTP Status Codes
+              | Code | Description |
+              |------|-------------|
+              | 200  | Retorno recebido com sucesso |
+              | 400  | Requisição inválida |
+              ...
+
+              ### Internal Business/Data Errors
+              | Code  | Description | Nivel |
+              |-------|-------------| ------| 
+              | EC001 | Falha na autorização do vendedor. Conta incorreta ou temporariamente desativada. | Pedido
+              | EC002 | Falha na autorização do cliente. Não foi possível realizar login. | Pedido
+              | EC003 | Dados do cliente não disponíveis. | Pedido
+              | EC004 | Produto não encontrado: {{sku}} | Produto
+              | EC005 | Falha ao adicionar ao carrinho: quantidade indisponível para {{sku}} | Produto
+              | EC006 | Falha ao adicionar ao carrinho: preço não disponível para {{sku}} | Produto
+              | EC007 | Método de pagamento não disponível ou inválido: {{payment_method_code}} | Pedido
+              | EC008 | Cupom não disponível: {{coupon_code} | Pedido
+              | EC009 | Falha ao finalizar pedido: não foi possível processar o pedido {{seller_order_code}} | Pedido
+              | EC010 | Pedidos com ausencia de SKUs | Pedido
+              | EC011 | Ordem rejeitada: Limite de crédito insuficiente | Pedido
+
+              ...
+
+
 
 components:
   securitySchemes:
