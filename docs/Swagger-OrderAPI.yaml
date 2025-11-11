@@ -25,120 +25,127 @@ servers:
 
 paths:
   /demand-capture:
-    post:
-      summary: Recebe pedidos ERP para integração com Magento
-      security:
+   post:
+    summary: Recebe pedidos ERP para integração com Magento
+    security:
       - OAuth2 Order Resquest:
           - read
           - write
-      tags: [Order Request]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - type
-                - correlation_id
-                - demands
-              properties:
-                type:
-                  type: string
-                  maxLength: 25
-                  description: Valor fixo "ErpDemandCapture"
-                  example: ErpDemandCapture
-                correlation_id:
-                  type: string
-                  maxLength: 255
-                  description: ID único para rastreamento ponta-a-ponta da requisição
-                  example: AGy9b4x-GjqnkPtyVqUE08oHBZ-test
-                demands:
-                  type: array
-                  description: | 
-                    Lista de pedidos a serem processados.  
-                    ⚠️ Observação: existe uma limitação de até 100 requisições por chamada.
-                  items:
-                    type: object
-                    required:
-                      - seller_code
-                      - erp_demand_id
-                      - cnpj_number
-                      - salesman_cpf
-                      - payment_term
-                      - seller_payment_method
-                      - credit_type
-                      - items
-                    properties:
-                      seller_code:
-                        type: string
-                        maxLength: 10
-                        description: Código do seller
-                      erp_demand_id:
-                        type: string
-                        maxLength: 50
-                        description: Identificador único do pedido no ERP
-                        example: 827-demo123
-                      cnpj_number:
-                        type: string
-                        maxLength: 50
-                        description: CNPJ do cliente
-                        example: 17.120.206/0001-58
-                      salesman_cpf:
-                        type: string
-                        maxLength: 25
-                        description: CPF do vendedor
-                        example: 1785694263
-                      seller_payment_method:
-                        type: string
-                        maxLength: 25
-                        description: Método de pagamento, sempre “boleto faturado”
-                        example: boleto faturado
-                      payment_term:
-                        type: string
-                        maxLength: 50
-                        description: Condição de pagamento
-                        example: CRL-21_28_35_42_49
-                      credit_type:
-                        type: string
-                        maxLength: 50
-                        description: Tipo de crédito, sempre “seller-credit”
-                        example: seller-credit
-                      coupon_code:
-                        type: string
-                        description: | 
-                          Código do cupom aplicado.
-
-                          ⚠️ Observação: Quando não houve cupom deixar o campo em branco.
-                        example: ULBR123_456
+    tags: [Order Request]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - type
+              - correlation_id
+              - demands
+            properties:
+              type:
+                type: string
+                maxLength: 25
+                description: Valor fixo "ErpDemandCapture"
+                example: ErpDemandCapture
+              correlation_id:
+                type: string
+                maxLength: 255
+                description: ID único para rastreamento ponta-a-ponta da requisição
+                example: AGy9b4x-GjqnkPtyVqUE08oHBZ-test
+              demands:
+                type: array
+                description: |
+                  Lista de pedidos a serem processados.  
+                  ⚠️ Observação: existe uma limitação de até 100 requisições por chamada.
+                items:
+                  type: object
+                  required:
+                    - seller_code
+                    - erp_demand_id
+                    - cnpj_number
+                    - salesman_cpf
+                    - payment_term
+                    - seller_payment_method
+                    - credit_type
+                    - items
+                  properties:
+                    seller_code:
+                      type: string
+                      maxLength: 10
+                      description: Código do seller
+                    erp_demand_id:
+                      type: string
+                      maxLength: 50
+                      description: Identificador único do pedido no ERP
+                      example: 827-demo123
+                    cnpj_number:
+                      type: string
+                      maxLength: 50
+                      description: CNPJ do cliente
+                      example: 17.120.206/0001-58
+                    salesman_cpf:
+                      type: string
+                      maxLength: 25
+                      description: CPF do vendedor
+                      example: 1785694263
+                    seller_payment_method:
+                      type: string
+                      maxLength: 25
+                      description: Método de pagamento, sempre “boleto faturado”
+                      example: boleto faturado
+                    payment_term:
+                      type: string
+                      maxLength: 50
+                      description: Condição de pagamento
+                      example: CRL-21_28_35_42_49
+                    credit_type:
+                      type: string
+                      maxLength: 50
+                      description: Tipo de crédito, sempre “seller-credit”
+                      example: seller-credit
+                    ignoreCreditValidation:
+                      type: boolean
+                      description: |
+                        Indica se a validação do limite de crédito deve ser ignorada para este pedido.
+                        ⚠️ Quando definido como true, o sistema não valida o limite de crédito.
+                        Quando omitido ou false, a validação padrão é aplicada.
+                      example: true
+                    coupon_code:
+                      type: string
+                      description: |
+                        Código do cupom aplicado.
+                        ⚠️ Observação: Quando não houve cupom deixar o campo em branco.
+                      example: ULBR123_456
+                    items:
+                      type: array
+                      description: |
+                        Lista de SKUs por pedido a ser processado.  
+                        ⚠️ Observação: existe uma limitação de até 350 SKUs por pedido.
                       items:
-                        type: array
-                        description: | 
-                         Lista de SKUs por pedido a ser processado.  
-                          ⚠️ Observação: existe uma limitação de até 350 SKUs por pedido.
-                        items:
-                          type: object
-                          required:
-                            - sku
-                            - quantity
-                          properties:
-                            sku:
-                              type: string
-                              description: Código SKU do produto
-                              example: 7894000010038C6
-                            ean:
-                              type: string
-                              description: Código produto
-                              example: 7894000010039
-                            quantity:
-                              type: integer
-                              description: Quantidade solicitada
-                              example: 10
-      responses:
-        '200':
-          description: Pedido recebido com sucesso
-        '400':
-          description: Requisição inválida
+                        type: object
+                        required:
+                          - sku
+                          - quantity
+                        properties:
+                          sku:
+                            type: string
+                            description: Código SKU do produto
+                            example: 7894000010038C6
+                          ean:
+                            type: string
+                            description: Código produto
+                            example: 7894000010039
+                          quantity:
+                            type: integer
+                            description: Quantidade solicitada
+                            example: 10
+    responses:
+      '200':
+        description: Pedido recebido com sucesso
+      '400':
+        description: Requisição inválida
+
         
   /order-response:
    post:
