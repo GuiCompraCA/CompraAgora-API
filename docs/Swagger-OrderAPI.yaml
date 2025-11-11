@@ -1,6 +1,6 @@
 openapi: 3.0.4
 info:
-  title: Order API - Produção
+  title: CA-PI - Homologação
   description: |
     Esta API permite que distribuidores realizem pedidos diretamente na plataforma Magento, 
     sem necessidade de interação do usuário no front-end. 
@@ -13,13 +13,13 @@ info:
 
     Importante: esta API opera de forma independente da integração outbound responsável pela atualização de pedidos no ERP do distribuidor.
 
-  version: 0.1.1
+  version: 0.2.0
 
 servers: 
-  - url: https://unileverapiservicesqa.test01.apimanagement.eu20.hana.ondemand.com/
-    description: Servidor de (Operação - Homologação)
-  #- url: https://ams-qas-a2a.it-cpi023-rt.cfapps.eu20-001.hana.ondemand.com/http/CABR/BulkOrderServices/OrderStatus
-  # description: Servidor de (Autenticação - Homologação)
+  #- url: https://unileverapiservicesqa.test01.apimanagement.eu20.hana.ondemand.com/
+  #  description: Servidor de (Operação - Homologação)
+  - url: https://ams-qas-a2a.it-cpi023-rt.cfapps.eu20-001.hana.ondemand.com/http/CABR/BulkOrderServices/OrderStatus
+    description: Servidor de (Autenticação - Homologação)
   #- url: https://ams-prd-a2a.prod.unilever.apimanagement.eu20.hana.ondemand.com:443/CABR/BulkOrderServices/Orders
   #  description: Servidor de (Operação)
 
@@ -141,12 +141,12 @@ paths:
           description: Requisição inválida
         
   /order-response:
-    post:
+   post:
       summary: Retorna o status dos pedidos processados pelo Magento
       security:
         - OAuth2 Order Status:
-          - read
-          - write
+            - read
+            - write
       tags: [Order Status]
       requestBody:
         required: true
@@ -163,9 +163,9 @@ paths:
                   type: string
                   maxLength: 255
                   description: |
-                     Tracking ID dos pacotes com pedidos processados pelo magento.
+                    Tracking ID dos pacotes com pedidos processados.
 
-                     ⚠️ Observação: Processo assincrono, correlation_Id diferente do enviado no Order Request.
+                    ⚠️ Observação: Processo assíncrono, correlation_id diferente do enviado no Order Request.
                   example: AHx7k9v-LMpnqzXrTwRE91ycVAZ-test
                 type:
                   type: string
@@ -192,12 +192,15 @@ paths:
                         type: string
                         maxLength: 10
                         description: Código do seller
+                      original_correlation_id:
+                        type: string
+                        maxLength: 255
+                        description: Correlation ID original enviado na Order Request
                       erp_demand_id:
                         type: string
                         maxLength: 50
-                        description: | 
+                        description: |
                           Identificador único do pedido no ERP do Seller.
-
                           ⚠️ Observação: Informado na Order Request.
                       cnpj_number:
                         type: string
@@ -206,7 +209,7 @@ paths:
                       increment_id:
                         type: string
                         maxLength: 50
-                        description: ID do pedido gerado no Magento
+                        description: ID do pedido gerados.
                       product_success_count:
                         type: integer
                         description: Quantidade de produtos processados com sucesso
@@ -218,11 +221,10 @@ paths:
                         description: Quantidade total de itens no pedido
                       order_error_code:
                         type: string
-                        enum: [EC001, EC002, EC003, EC007, EC008, EC009,  EC010, EC011]
-                        description: | 
+                        enum: [EC001, EC002, EC003, EC007, EC008, EC009, EC010, EC011]
+                        description: |
                           Código de erro geral do pedido
-
-                          ⚠️ Observação: A descrição detalhada dos erros estarão disponiveis na seção de Response do documento. Existem destinção de erros de pedidos e erros de produtos.
+                          ⚠️ Observação: A descrição detalhada dos erros estará disponível na seção de Response.
                       order_status:
                         type: string
                         enum: [success, failed, partial]
@@ -238,25 +240,26 @@ paths:
                           required:
                             - sku
                             - status
-                            - error_code
-                            - order_error_code
+                            - requested_qty
+                            - fulfilled_qty
                           properties:
                             sku:
                               type: string
                               description: SKU do produto
                             status:
                               type: string
-                              enum: [success, failed]
+                              enum: [success, failed, partial_stock]
                               description: Status do processamento do item
                             error_code:
                               type: string
                               enum: [EC004, EC005, EC006]
-                              description: |
-                                 Código de erro do item, se houver
-
-                                 ⚠️ Observação: A descrição detalhada dos erros estarão disponiveis na seção de Response do documento; Existem destinção de erros de pedidos e erros de produtos.
-
-
+                              description: Código de erro do item, se houver
+                            requested_qty:
+                              type: integer
+                              description: Quantidade de SKUs solicitada.
+                            fulfilled_qty:
+                              type: integer
+                              description: Quantidade de SKUs disponiveis.
       responses:
       
         'default':
@@ -278,10 +281,10 @@ paths:
               | EC005 | Falha ao adicionar ao carrinho: quantidade indisponível para {{sku}} | Produto
               | EC006 | Falha ao adicionar ao carrinho: preço não disponível para {{sku}} | Produto
               | EC007 | Método de pagamento não disponível ou inválido: {{payment_method_code}} | Pedido
-              | EC008 | Cupom não disponível: {{coupon_code} | Pedido
+              | EC008 | Cupom não disponível: {{coupon_code}} | Pedido
               | EC009 | Falha ao finalizar pedido: não foi possível processar o pedido {{seller_order_code}} | Pedido
-              | EC010 | Pedidos com ausencia de SKUs | Pedido
-              | EC011 | Ordem rejeitada: Limite de crédito insuficiente | Pedido
+              | EC010 | Falha ao criar pedido – Nenhum produto foi incluído neste pedido {{sku}} | Pedido
+              | EC011 | Ordem rejeitada: Limite de crédito insuficiente {{credit_limit}} | Pedido
 
               ...
 
@@ -289,7 +292,7 @@ paths:
 
 components:
   securitySchemes:
-    OAuth2 Order Resquest:
+    OAuth2OrderResquest:
       type: oauth2
       description: Ambiente de Autenticação fornecida pelo Compra-Agora.
       flows:
@@ -300,7 +303,7 @@ components:
             read: Permite leitura de dados
             write: Permite escrita de dados
 
-    OAuth2 Order Status:
+    OAuth2OrderStatus:
       type: oauth2
       description: Ambiente de autenticação fornecida pelo distribuidor.
       flows:
